@@ -2,9 +2,10 @@ from qdrant_client import QdrantClient
 from llama_index.llms.ollama import Ollama
 from llama_index.core import SimpleDirectoryReader
 from llama_index.core.memory import ChatMemoryBuffer
-from llama_index.core import ServiceContext, VectorStoreIndex
+from llama_index.core import VectorStoreIndex, Settings
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.core.storage.storage_context import StorageContext
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -14,7 +15,13 @@ class AIVoiceAssistant:
         self._qdrant_url = "http://localhost:6333"
         self._client = QdrantClient(url=self._qdrant_url, prefer_grpc=False)
         self._llm = Ollama(model="mistral", request_timeout=120.0)
-        self._service_context = ServiceContext.from_defaults(llm=self._llm, embed_model="local")
+        
+        # Set up global settings with a working local embedding model
+        Settings.llm = self._llm
+        Settings.embed_model = HuggingFaceEmbedding(
+            model_name="sentence-transformers/all-MiniLM-L6-v2"
+        )
+        
         self._index = None
         self._create_kb()
         self._create_chat_engine()
@@ -30,13 +37,20 @@ class AIVoiceAssistant:
     def _create_kb(self):
         try:
             reader = SimpleDirectoryReader(
-                input_files=[r"rag\restaurant_file.txt"]
+                input_files=[r"rag/restaurant_file.txt"]
             )
             documents = reader.load_data()
-            vector_store = QdrantVectorStore(client=self._client, collection_name="kitchen_db")
+            
+            # Create vector store with explicit collection configuration
+            vector_store = QdrantVectorStore(
+                client=self._client, 
+                collection_name="kitchen_db",
+                enable_hybrid=False
+            )
             storage_context = StorageContext.from_defaults(vector_store=vector_store)
+            
             self._index = VectorStoreIndex.from_documents(
-                documents, service_context=self._service_context, storage_context=storage_context
+                documents, storage_context=storage_context
             )
             print("Knowledgebase created successfully!")
         except Exception as e:
